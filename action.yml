@@ -1,0 +1,42 @@
+name: 'production-commit-tagger'
+author: 'James Brown <james@instrumentl.com>'
+description: 'Create tags after a production deployment'
+inputs:
+  timestamp:
+    description: 'Time at which the deployment occurred'
+    required: true
+  deployment_id:
+    description: 'Disambiguating ID of deployment'
+    required: true
+  prefix:
+    description: "Prefix for tags"
+    default: v2.
+  timestamp_format:
+    description: "strftime format for tag name"
+    default: "%Y%m%dT%H%M"
+outputs:
+  tag_name:
+    description: 'Name of created tag'
+    value: ${{ steps.create-tag.outputs.tag_name }}
+  release_body_path:
+    description: 'Path to a file containing the body to put in the Release'
+    value: ${{ steps.create-tag.outputs.release_body_path }}
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    - run: pip install -r ${{ github.action_path }}/requirements.txt
+      shell: bash
+    - run: ${{github.action_path}}/create-tag --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
+      id: create-tag
+      shell: bash
+      env:
+        GIT_AUTHOR_NAME: "Instrumentl GitHub Actions Bot"
+        GIT_COMMITTER_NAME: "Instrumentl GitHub Actions Bot"
+        GIT_AUTHOR_EMAIL: "no-reply@instrumentl.com"
+        GIT_COMMITTER_EMAIL: "no-reply@instrumentl.com"
+branding:
+  icon: tag
+  color: blue

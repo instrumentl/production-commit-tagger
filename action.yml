@@ -13,7 +13,7 @@ inputs:
     default: v2.
   timestamp_format:
     description: "strftime format for tag name"
-    default: "%Y%m%dT%H%M"
+    default: "%Y%m%d%H%M"
 outputs:
   tag_name:
     description: 'Name of created tag'

@@ -1,2 +1,3 @@
 python-dateutil==2.8.*
 GitPython==3.*
+PyGitHub==2.*

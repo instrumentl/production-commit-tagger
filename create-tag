@@ -4,37 +4,44 @@ import argparse
 import collections
 import datetime
 import itertools
+import logging
 import operator
 import os
 import re
+import sys
 from dataclasses import dataclass
 from typing import List, Optional
 
 import dateutil.parser
 import git
+import github
 
 
 def get_existing_tags(repo, prefix):
     for tag in repo.tags:
         if not tag.name.startswith(prefix):
             continue
-        date = getattr(tag.object, 'tagged_date', getattr(tag.object, 'committed_date', None))
+        date = getattr(
+            tag.object, "tagged_date", getattr(tag.object, "committed_date", None)
+        )
         date = datetime.datetime.fromtimestamp(date, tz=datetime.timezone.utc)
         yield tag, date
 
 
 PRETTY_TYPES = {
-    'feat': 'Features',
-    'fix': 'Bug Fixes',
-    'perf': 'Performance Improvements',
-    'chore': 'Improvements',
+    "feat": "Features",
+    "fix": "Bug Fixes",
+    "perf": "Performance Improvements",
+    "chore": "Improvements",
 }
 
 
 @dataclass
 class CommitMessage(object):
-    BREAKING_CHANGE_RE = re.compile(r'^BREAKING CHANGES?: (.*)$', re.M)
-    SUMMARY_RE = re.compile(r'^(?P<type>[a-z]+)(?P<scope>\([^)]+\))?:\s+(?P<description>.*)')
+    BREAKING_CHANGE_RE = re.compile(r"^BREAKING CHANGES?: (.*)$", re.M)
+    SUMMARY_RE = re.compile(
+        r"^(?P<type>[a-z]+)(?P<scope>\([^)]+\))?:\s+(?P<description>.*)"
+    )
 
     type: str
     scope: Optional[str]
@@ -44,16 +51,16 @@ class CommitMessage(object):
 
     @classmethod
     def parse(cls, commit):
-        summary, *rest = commit.message.strip().split('\n', 1)
+        summary, *rest = commit.message.strip().split("\n", 1)
         if rest:
             body = rest[0]
         else:
             body = ""
         if md := cls.SUMMARY_RE.match(summary):
             return cls(
-                type=md.group('type'),
-                scope=md.group('scope'),
-                description=md.group('description'),
+                type=md.group("type"),
+                scope=md.group("scope"),
+                description=md.group("description"),
                 author=commit.author.email,
                 breaking_changes=cls.BREAKING_CHANGE_RE.findall(body),
             )
@@ -68,9 +75,9 @@ def enumerate_changes(repo, latest_tag, commit, max_commits=50):
         # no merge base; treat as none
         return None
     for commit in itertools.islice(
-        repo.iter_commits(f"{merge_base}..{commit.hexsha}"),
-        max_commits
+        repo.iter_commits(f"{merge_base}..{commit.hexsha}"), max_commits
     ):
+        logging.debug(f"examining commit {commit}")
         parsed = CommitMessage.parse(commit)
         if parsed is not None:
             yield parsed
@@ -78,78 +85,131 @@ def enumerate_changes(repo, latest_tag, commit, max_commits=50):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkout-dir', default=os.environ.get('GITHUB_WORKSPACE', None),
-                        required='GITHUB_WORKSPACE' not in os.environ,
-                        help='Checkout directory (default %(default)s)')
-    parser.add_argument('--prefix', default='v2.', help='Tag prefix (default %(default)s)')
-    parser.add_argument('--sha', default=os.environ.get('GITHUB_SHA', ''),
-                        required='GITHUB_SHA' not in os.environ,
-                        help='SHA on which to run (pulls from $GITHUB_SHA by default)')
-    parser.add_argument('--timestamp-format', default='%Y%m%dT%H%M%S',
-                        help='strftime format string for timestamp (default %(default)s)')
-    parser.add_argument('-p', '--pretend', action='store_true')
-    parser.add_argument('timestamp', type=dateutil.parser.isoparse)
-    parser.add_argument('deployment_id', type=int)
+    parser.add_argument(
+        "--checkout-dir",
+        default=os.environ.get("GITHUB_WORKSPACE", None),
+        required="GITHUB_WORKSPACE" not in os.environ,
+        help="Checkout directory (default %(default)s)",
+    )
+    parser.add_argument(
+        "--prefix", default="v2.", help="Tag prefix (default %(default)s)"
+    )
+    parser.add_argument(
+        "--sha",
+        default=os.environ.get("GITHUB_SHA", ""),
+        required="GITHUB_SHA" not in os.environ,
+        help="SHA on which to run (pulls from $GITHUB_SHA by default)",
+    )
+    parser.add_argument(
+        "--timestamp-format",
+        default="%Y%m%dT%H%M%S",
+        help="strftime format string for timestamp (default %(default)s)",
+    )
+    parser.add_argument(
+        "--token", default=None, help="GitHub token (will not be used if not passed)"
+    )
+    parser.add_argument("--repository", required=True, help="GitHub username/repo")
+    parser.add_argument("-p", "--pretend", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("timestamp", type=dateutil.parser.isoparse)
+    parser.add_argument("deployment_id", type=int)
     args = parser.parse_args()
 
-    actor = os.environ.get('GITHUB_ACTOR', 'unknown')
+    timestamp = args.timestamp.replace(tzinfo=datetime.timezone.utc)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING, stream=sys.stderr
+    )
+
+    actor = os.environ.get("GITHUB_ACTOR", "unknown")
+
+    if args.token not in (None, "", "none"):
+        auth = github.Auth.Token(token=args.token)
+        g = github.Github(auth=auth)
+    else:
+        g = None
 
     repo = git.Repo(args.checkout_dir)
 
     commit = repo.commit(args.sha)
 
-    new_name = f'{args.prefix}{args.timestamp.strftime(args.timestamp_format)}.{args.deployment_id}'
+    new_name = (
+        f"{args.prefix}{timestamp.strftime(args.timestamp_format)}.{args.deployment_id}"
+    )
 
+    logging.debug("scanning all existing tags")
     existing_tags = list(get_existing_tags(repo, args.prefix))
     if existing_tags:
         last_tag, last_tag_date = sorted(existing_tags, key=operator.itemgetter(1))[-1]
     else:
         last_tag, last_tag_date = None, None
+    logging.debug(f"found last tag of {last_tag}")
 
-    message_lines = ['deployment of {sha} to production at {ts} (@{unix}) by @{who}'.format(
-        sha=commit.hexsha,
-        ts=args.timestamp.isoformat(),
-        unix=int(args.timestamp.timestamp()),
-        who=actor
-    )]
+    message_lines = [
+        "deployment of {sha} to production at {ts} (@{unix}) by @{who}".format(
+            sha=commit.hexsha,
+            ts=timestamp.isoformat(),
+            unix=int(timestamp.timestamp()),
+            who=actor,
+        )
+    ]
+    commit_authors = set()
 
     if last_tag:
         by_type = collections.defaultdict(list)
-        by_type['feat'] = []
-        by_type['fix'] = []
+        by_type["feat"] = []
+        by_type["fix"] = []
         for change in enumerate_changes(repo, last_tag, commit):
-            by_type[change.type].append(f'{change.description} ({change.author})')
+            by_type[change.type].append(f"{change.description} ({change.author})")
             for breaker in change.breaking_changes:
-                by_type['BREAKING CHANGES'].append(f'{breaker} ({change.author})')
-        delta = args.timestamp - last_tag_date
+                by_type["BREAKING CHANGES"].append(f"{breaker} ({change.author})")
+        delta = timestamp - last_tag_date
         if any(v for v in by_type.values()):
-            message_lines.extend(['', f'changes since {last_tag.name} ({delta} ago):', ''])
+            message_lines.extend(
+                ["", f"changes since {last_tag.name} ({delta} ago):", ""]
+            )
         else:
-            message_lines.extend(['', f'no parseable changes since {last_tag.name} ({delta} ago)'])
+            message_lines.extend(
+                ["", f"no parseable changes since {last_tag.name} ({delta} ago)"]
+            )
         for type, changes in by_type.items():
             if not changes:
                 continue
             label = PRETTY_TYPES.get(type, type)
-            message_lines.append(f'{label}:')
+            message_lines.append(f"{label}:")
             for change in changes:
-                message_lines.append(f' - {change}')
-            message_lines.append('')
+                message_lines.append(f" - {change}")
+            message_lines.append("")
 
-    release_body_path = f'release_notes-{new_name}.txt'
-    with open(os.path.join(args.checkout_dir, release_body_path), 'w') as tf:
-        tf.write('\n'.join(message_lines))
-        tf.write('\n')
+        if g is not None:
+            # have to use the github API because peoples' commit email addresses are unpredictable
+            logging.debug(
+                f"looking up changes between {last_tag.name} and {args.sha} from github api"
+            )
+            github_repo = g.get_repo(args.repository)
+            comp = github_repo.compare(last_tag.name, args.sha)
+            if comp.total_commits > 1:
+                # only consider the first page of changes
+                commits = comp.commits.get_page(0)
+                for commit in commits:
+                    if commit.author.login is not None:
+                        commit_authors.add(commit.author.login)
+
+    release_body_path = f"release_notes-{new_name}.txt"
+    with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:
+        tf.write("\n".join(message_lines))
+        tf.write("\n")
 
     if not args.pretend:
-        repo.create_tag(
-            new_name,
-            commit,
-            '\n'.join(message_lines)
-        )
-    output = {"tag_name": new_name, "release_body_path": release_body_path}
-    output = '\n'.join(f'{k}={v}'.format(k, v) for k, v in output.items())
-    if output_path := os.environ.get('GITHUB_OUTPUT'):
-        with open(output_path, 'w') as f:
+        repo.create_tag(new_name, commit, "\n".join(message_lines))
+    output = {
+        "tag_name": new_name,
+        "release_body_path": release_body_path,
+        "commit_authors": ",".join(sorted(commit_authors)),
+    }
+    output = "\n".join(f"{k}={v}".format(k, v) for k, v in output.items())
+    if output_path := os.environ.get("GITHUB_OUTPUT"):
+        with open(output_path, "w") as f:
             f.write(output)
     print(output)
 

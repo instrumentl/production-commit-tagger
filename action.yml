@@ -14,6 +14,9 @@ inputs:
   timestamp_format:
     description: "strftime format for tag name"
     default: "%Y%m%d%H%M"
+  token:
+    description: "GitHub Token"
+    default: "none"
 outputs:
   tag_name:
     description: 'Name of created tag'
@@ -21,6 +24,9 @@ outputs:
   release_body_path:
     description: 'Path to a file containing the body to put in the Release'
     value: ${{ steps.create-tag.outputs.release_body_path }}
+  commit_authors:
+    description: 'Comma-separated list of the first page of author usernames since the last Release'
+    value: ${{ steps.create-tag.outputs.commit_authors }}
 runs:
   using: 'composite'
   steps:
@@ -29,7 +35,7 @@ runs:
         python-version: '3.11'
     - run: pip install -r ${{ github.action_path }}/requirements.txt
       shell: bash
-    - run: ${{github.action_path}}/create-tag --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
+    - run: ${{github.action_path}}/create-tag --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
       id: create-tag
       shell: bash
       env:

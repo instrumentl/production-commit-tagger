@@ -35,7 +35,7 @@ runs:
         python-version: '3.11'
     - run: pip install -r ${{ github.action_path }}/requirements.txt
       shell: bash
-    - run: ${{github.action_path}}/create-tag --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
+    - run: ${{github.action_path}}/create-tag --verbose --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
       id: create-tag
       shell: bash
       env:

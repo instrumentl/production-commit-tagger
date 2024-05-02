@@ -191,9 +191,9 @@ def main():
             if comp.total_commits > 0:
                 # only consider the first page of changes
                 commits = comp.commits.get_page(0)
-                for commit in commits:
-                    if commit.author.login is not None:
-                        commit_authors.add(commit.author.login)
+                for gcommit in commits:
+                    if gcommit.author.login is not None:
+                        commit_authors.add(gcommit.author.login)
 
     release_body_path = f"release_notes-{new_name}.txt"
     with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:
@@ -201,7 +201,7 @@ def main():
         tf.write("\n")
 
     if not args.pretend:
-        repo.create_tag(new_name, commit.sha, "\n".join(message_lines))
+        repo.create_tag(new_name, commit.hexsha, "\n".join(message_lines))
     output = {
         "tag_name": new_name,
         "release_body_path": release_body_path,

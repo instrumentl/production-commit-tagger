@@ -201,7 +201,7 @@ def main():
         tf.write("\n")
 
     if not args.pretend:
-        repo.create_tag(new_name, commit, "\n".join(message_lines))
+        repo.create_tag(new_name, commit.sha, "\n".join(message_lines))
     output = {
         "tag_name": new_name,
         "release_body_path": release_body_path,

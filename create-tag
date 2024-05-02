@@ -188,7 +188,7 @@ def main():
             )
             github_repo = g.get_repo(args.repository)
             comp = github_repo.compare(last_tag.name, args.sha)
-            if comp.total_commits > 1:
+            if comp.total_commits > 0:
                 # only consider the first page of changes
                 commits = comp.commits.get_page(0)
                 for commit in commits:

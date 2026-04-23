@@ -125,9 +125,9 @@ def main():
 
     if args.token not in (None, "", "none"):
         auth = github.Auth.Token(token=args.token)
-        g = github.Github(auth=auth)
+        github_client = github.Github(auth=auth)
     else:
-        g = None
+        github_client = None
 
     repo = git.Repo(args.checkout_dir)
 
@@ -159,8 +159,10 @@ def main():
         by_type = collections.defaultdict(list)
         by_type["feat"] = []
         by_type["fix"] = []
+        change_authors = set()
         for change in enumerate_changes(repo, last_tag, commit):
             by_type[change.type].append(f"{change.description} ({change.author})")
+            change_authors.add(change.author)
             for breaker in change.breaking_changes:
                 by_type["BREAKING CHANGES"].append(f"{breaker} ({change.author})")
         delta = timestamp - last_tag_date
@@ -181,28 +183,16 @@ def main():
                 message_lines.append(f" - {change}")
             message_lines.append("")
 
-        if g is not None:
-            # have to use the github API because peoples' commit email addresses are unpredictable
-            logging.debug(
-                f"looking up changes between {last_tag.name} and {args.sha} from github api"
-            )
-            github_repo = g.get_repo(args.repository)
-            comp = github_repo.compare(last_tag.name, args.sha)
-            if comp.total_commits > 0:
-                # only consider the first page of changes
-                commits = comp.commits.get_page(0)
-                for gcommit in commits:
-                    # Use the pulls endpoint to find the PR author
-                    try:
-                        pulls = github_repo.get_commit(gcommit.sha).get_pulls()
-                        pr = pulls[0] if pulls.totalCount > 0 else None
-                    except Exception:
-                        logging.debug(f"could not look up PRs for {gcommit.sha}")
-                        pr = None
-                    if pr and pr.user and pr.user.login:
-                        commit_authors.add(pr.user.login)
-                    elif gcommit.author and gcommit.author.login is not None:
-                        commit_authors.add(gcommit.author.login)
+        if github_client is not None and change_authors:
+            # Map commit emails to GitHub usernames
+            for email in change_authors:
+                try:
+                    users = github_client.search_users(f"{email} in:email")
+                    for user in users:
+                        commit_authors.add(user.login)
+                        break
+                except Exception:
+                    logging.debug(f"could not look up GitHub user for {email}")
 
     release_body_path = f"release_notes-{new_name}.txt"
     with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:

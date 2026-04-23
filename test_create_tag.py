@@ -308,3 +308,235 @@ class TestMain:
     def test_verbose_flag(self, tmp_path):
         # Should not raise
         self._run_main(tmp_path, extra_args=["-v"])
+
+
+# ---- GitHub API commit author resolution tests ----
+
+def _fake_github_commit(message, author_login=None):
+    """Build a fake GitHub commit object for compare results."""
+    gc = mock.MagicMock()
+    gc.commit.message = message
+    if author_login is not None:
+        gc.author.login = author_login
+    else:
+        gc.author = None
+    return gc
+
+
+class TestCommitAuthorResolution:
+    """Tests for the GitHub API code that resolves commit authors
+    via PR lookups for squash/merge commits (lines ~184-207)."""
+
+    def _run_with_token(self, tmp_path, github_commits,
+                        pr_map=None, pr_errors=None):
+        """Run main() with a --token so the GitHub API path executes.
+
+        Args:
+            github_commits: list of fake GitHub commit objects
+            pr_map: dict of PR number -> fake PR object
+            pr_errors: set of PR numbers that should raise
+        """
+        utc = datetime.timezone.utc
+        ts = int(datetime.datetime(
+            2024, 3, 15, 12, 0, 0, tzinfo=utc
+        ).timestamp())
+
+        fake_commit = mock.MagicMock()
+        fake_commit.hexsha = "aabbccdd" * 5
+        fake_commit.author.email = "dev@example.com"
+
+        fake_tag = mock.MagicMock()
+        fake_tag.name = "v2.20240314T120000.100"
+        fake_tag.object.tagged_date = ts - 86400
+
+        fake_repo = mock.MagicMock()
+        fake_repo.commit.return_value = fake_commit
+        fake_repo.tags = [fake_tag]
+        fake_repo.git.merge_base.return_value = "000000"
+        fake_repo.iter_commits.return_value = iter([])
+
+        # Mock the GitHub API
+        fake_comp = mock.MagicMock()
+        fake_comp.total_commits = len(github_commits)
+        fake_comp.commits.get_page.return_value = github_commits
+
+        fake_github_repo = mock.MagicMock()
+        fake_github_repo.compare.return_value = fake_comp
+
+        if pr_map is None:
+            pr_map = {}
+        if pr_errors is None:
+            pr_errors = set()
+
+        def get_pull(num):
+            if num in pr_errors:
+                raise Exception("not found")
+            return pr_map[num]
+
+        fake_github_repo.get_pull.side_effect = get_pull
+
+        fake_github = mock.MagicMock()
+        fake_github.get_repo.return_value = fake_github_repo
+
+        argv = [
+            "create-tag",
+            "--checkout-dir", str(tmp_path),
+            "--prefix", "v2.",
+            "--sha", "aabbccdd" * 5,
+            "--repository", "org/repo",
+            "--token", "ghp_fake123",
+            "--pretend",
+            "2024-03-15T12:00:00",
+            "42",
+        ]
+
+        env = {
+            "GITHUB_ACTOR": "testuser",
+            "GITHUB_OUTPUT": "",
+        }
+
+        with mock.patch("git.Repo", return_value=fake_repo), \
+             mock.patch("github.Auth.Token"), \
+             mock.patch("github.Github",
+                        return_value=fake_github), \
+             mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch("sys.argv", argv):
+            from io import StringIO
+            captured = StringIO()
+            with mock.patch("sys.stdout", captured):
+                create_tag.main()
+            return captured.getvalue()
+
+    def test_squash_commit_resolves_pr_author(self, tmp_path):
+        """A commit like 'feat: thing (#42)' should look up PR #42
+        and use the PR author's login."""
+        pr = mock.MagicMock()
+        pr.user.login = "alice"
+
+        commits = [
+            _fake_github_commit(
+                "feat: add widget (#42)", author_login="merger"
+            ),
+        ]
+        output = self._run_with_token(
+            tmp_path, commits, pr_map={42: pr}
+        )
+        assert "alice" in output
+        assert "merger" not in output
+
+    def test_regular_commit_uses_commit_author(self, tmp_path):
+        """A commit without a PR ref should use the commit author."""
+        commits = [
+            _fake_github_commit(
+                "fix: quick patch", author_login="bob"
+            ),
+        ]
+        output = self._run_with_token(tmp_path, commits)
+        assert "bob" in output
+
+    def test_pr_lookup_failure_falls_back_to_commit_author(
+        self, tmp_path
+    ):
+        """If get_pull raises, fall back to the commit author."""
+        commits = [
+            _fake_github_commit(
+                "feat: thing (#99)", author_login="charlie"
+            ),
+        ]
+        output = self._run_with_token(
+            tmp_path, commits, pr_errors={99}
+        )
+        assert "charlie" in output
+
+    def test_multiple_authors_deduped_and_sorted(self, tmp_path):
+        """commit_authors should be deduplicated and sorted."""
+        pr = mock.MagicMock()
+        pr.user.login = "alice"
+
+        commits = [
+            _fake_github_commit(
+                "feat: one (#10)", author_login="zed"
+            ),
+            _fake_github_commit(
+                "feat: two", author_login="alice"
+            ),
+            _fake_github_commit(
+                "feat: three", author_login="alice"
+            ),
+        ]
+        output = self._run_with_token(
+            tmp_path, commits, pr_map={10: pr}
+        )
+        # PR #10 resolves to alice, the other two use commit
+        # author (alice twice). Should be deduplicated.
+        assert "commit_authors=alice" in output
+
+    def test_commit_with_no_author_skipped(self, tmp_path):
+        """A commit with author=None should not add to authors."""
+        commits = [
+            _fake_github_commit("fix: orphan commit"),
+        ]
+        output = self._run_with_token(tmp_path, commits)
+        assert "commit_authors=" in output
+
+    def test_zero_total_commits_skips_page(self, tmp_path):
+        """If compare returns 0 total commits, should not fetch
+        page or add any authors."""
+        utc = datetime.timezone.utc
+        ts = int(datetime.datetime(
+            2024, 3, 15, 12, 0, 0, tzinfo=utc
+        ).timestamp())
+
+        fake_commit = mock.MagicMock()
+        fake_commit.hexsha = "aabbccdd" * 5
+        fake_commit.author.email = "dev@example.com"
+
+        fake_tag = mock.MagicMock()
+        fake_tag.name = "v2.20240314T120000.100"
+        fake_tag.object.tagged_date = ts - 86400
+
+        fake_repo = mock.MagicMock()
+        fake_repo.commit.return_value = fake_commit
+        fake_repo.tags = [fake_tag]
+        fake_repo.git.merge_base.return_value = "000000"
+        fake_repo.iter_commits.return_value = iter([])
+
+        fake_comp = mock.MagicMock()
+        fake_comp.total_commits = 0
+
+        fake_github_repo = mock.MagicMock()
+        fake_github_repo.compare.return_value = fake_comp
+
+        fake_github = mock.MagicMock()
+        fake_github.get_repo.return_value = fake_github_repo
+
+        argv = [
+            "create-tag",
+            "--checkout-dir", str(tmp_path),
+            "--prefix", "v2.",
+            "--sha", "aabbccdd" * 5,
+            "--repository", "org/repo",
+            "--token", "ghp_fake123",
+            "--pretend",
+            "2024-03-15T12:00:00",
+            "42",
+        ]
+        env = {
+            "GITHUB_ACTOR": "testuser",
+            "GITHUB_OUTPUT": "",
+        }
+
+        with mock.patch("git.Repo", return_value=fake_repo), \
+             mock.patch("github.Auth.Token"), \
+             mock.patch("github.Github",
+                        return_value=fake_github), \
+             mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch("sys.argv", argv):
+            from io import StringIO
+            captured = StringIO()
+            with mock.patch("sys.stdout", captured):
+                create_tag.main()
+            output = captured.getvalue()
+
+        assert "commit_authors=" in output
+        fake_comp.commits.get_page.assert_not_called()

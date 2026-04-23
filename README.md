@@ -16,9 +16,3 @@ source .venv/bin/activate
 uv pip install -r requirements.txt pytest
 ```
 
-## Running Tests
-
-```sh
-source .venv/bin/activate
-pytest test_create_tag.py -v
-```

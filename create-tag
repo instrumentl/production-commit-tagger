@@ -191,19 +191,17 @@ def main():
             if comp.total_commits > 0:
                 # only consider the first page of changes
                 commits = comp.commits.get_page(0)
-                pr_re = re.compile(r"\(#(\d+)\)")
                 for gcommit in commits:
-                    # For squash/merge commits, look up the PR author instead of the commit author
-                    pr_match = pr_re.search(gcommit.commit.message.split("\n", 1)[0])
-                    if pr_match:
-                        try:
-                            pr = github_repo.get_pull(int(pr_match.group(1)))
-                            if pr.user and pr.user.login:
-                                commit_authors.add(pr.user.login)
-                                continue
-                        except Exception:
-                            logging.debug(f"could not look up PR #{pr_match.group(1)}")
-                    if gcommit.author and gcommit.author.login is not None:
+                    # Use the pulls endpoint to find the PR author
+                    try:
+                        pulls = github_repo.get_commit(gcommit.sha).get_pulls()
+                        pr = pulls[0] if pulls.totalCount > 0 else None
+                    except Exception:
+                        logging.debug(f"could not look up PRs for {gcommit.sha}")
+                        pr = None
+                    if pr and pr.user and pr.user.login:
+                        commit_authors.add(pr.user.login)
+                    elif gcommit.author and gcommit.author.login is not None:
                         commit_authors.add(gcommit.author.login)
 
     release_body_path = f"release_notes-{new_name}.txt"
@@ -225,4 +223,5 @@ def main():
     print(output)
 
 
-main()
+if __name__ == "__main__":
+    main()

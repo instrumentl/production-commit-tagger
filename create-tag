@@ -14,7 +14,6 @@ from typing import List, Optional
 
 import dateutil.parser
 import git
-import github
 
 
 def get_existing_tags(repo, prefix):
@@ -123,12 +122,6 @@ def main():
 
     actor = os.environ.get("GITHUB_ACTOR", "unknown")
 
-    if args.token not in (None, "", "none"):
-        auth = github.Auth.Token(token=args.token)
-        github_client = github.Github(auth=auth)
-    else:
-        github_client = None
-
     repo = git.Repo(args.checkout_dir)
 
     commit = repo.commit(args.sha)
@@ -182,17 +175,6 @@ def main():
             for change in changes:
                 message_lines.append(f" - {change}")
             message_lines.append("")
-
-        if github_client is not None and change_authors:
-            # Map commit emails to GitHub usernames
-            for email in change_authors:
-                try:
-                    users = github_client.search_users(f"{email} in:email")
-                    for user in users:
-                        commit_authors.add(user.login)
-                        break
-                except Exception:
-                    logging.debug(f"could not look up GitHub user for {email}")
 
     release_body_path = f"release_notes-{new_name}.txt"
     with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:

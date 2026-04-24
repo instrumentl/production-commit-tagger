@@ -47,6 +47,7 @@ class CommitMessage(object):
     scope: Optional[str]
     description: str
     author: str
+    sha: str
     breaking_changes: List[str]
 
     @classmethod
@@ -62,6 +63,7 @@ class CommitMessage(object):
                 scope=md.group("scope"),
                 description=md.group("description"),
                 author=commit.author.email,
+                sha=commit.hexsha,
                 breaking_changes=cls.BREAKING_CHANGE_RE.findall(body),
             )
         else:
@@ -160,9 +162,14 @@ def main():
         by_type["feat"] = []
         by_type["fix"] = []
         change_authors = set()
+
+        # email of author -> SHA of the first commit found in changes
+        author_to_sha = {}
         for change in enumerate_changes(repo, last_tag, commit):
             by_type[change.type].append(f"{change.description} ({change.author})")
             change_authors.add(change.author)
+            if change.author not in author_to_sha:
+                author_to_sha[change.author] = change.sha
             for breaker in change.breaking_changes:
                 by_type["BREAKING CHANGES"].append(f"{breaker} ({change.author})")
         delta = timestamp - last_tag_date
@@ -183,14 +190,14 @@ def main():
                 message_lines.append(f" - {change}")
             message_lines.append("")
 
-        if github_client is not None and change_authors:
-            # Map commit emails to GitHub usernames
-            for email in change_authors:
+        if github_client is not None and author_to_sha:
+            # Map commit authors to GitHub usernames via commit SHA lookup
+            gh_repo = github_client.get_repo(args.repository)
+            for email, sha in author_to_sha.items():
                 try:
-                    users = github_client.search_users(f"{email} in:email")
-                    for user in users:
-                        commit_authors.add(user.login)
-                        break
+                    gh_commit = gh_repo.get_commit(sha)
+                    if gh_commit.author:
+                        commit_authors.add(gh_commit.author.login)
                 except Exception:
                     logging.debug(f"could not look up GitHub user for {email}")
 

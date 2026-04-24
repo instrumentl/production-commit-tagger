@@ -48,6 +48,7 @@ class CommitMessage(object):
     description: str
     author: str
     sha: str
+    sha: str
     breaking_changes: List[str]
 
     @classmethod
@@ -63,6 +64,7 @@ class CommitMessage(object):
                 scope=md.group("scope"),
                 description=md.group("description"),
                 author=commit.author.email,
+                sha=commit.hexsha,
                 sha=commit.hexsha,
                 breaking_changes=cls.BREAKING_CHANGE_RE.findall(body),
             )
@@ -156,6 +158,7 @@ def main():
         )
     ]
     commit_authors = set()
+    commit_authors.add(actor)
 
     if last_tag:
         by_type = collections.defaultdict(list)
@@ -190,16 +193,17 @@ def main():
                 message_lines.append(f" - {change}")
             message_lines.append("")
 
-        if github_client is not None and author_to_sha:
-            # Map commit authors to GitHub usernames via commit SHA lookup
-            gh_repo = github_client.get_repo(args.repository)
-            for email, sha in author_to_sha.items():
-                try:
-                    gh_commit = gh_repo.get_commit(sha)
-                    if gh_commit.author:
-                        commit_authors.add(gh_commit.author.login)
-                except Exception:
-                    logging.debug(f"could not look up GitHub user for {email}")
+        # FIXME we don't want to add the commit_authors until the list is fixed
+        # if github_client is not None and author_to_sha:
+        #     # Map commit authors to GitHub usernames via commit SHA lookup
+        #     gh_repo = github_client.get_repo(args.repository)
+        #     for email, sha in author_to_sha.items():
+        #         try:
+        #             gh_commit = gh_repo.get_commit(sha)
+        #             if gh_commit.author:
+        #                 commit_authors.add(gh_commit.author.login)
+        #         except Exception:
+        #             logging.debug(f"could not look up GitHub user for {email}")
 
     release_body_path = f"release_notes-{new_name}.txt"
     with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:

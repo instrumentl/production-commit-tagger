@@ -30,14 +30,19 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/setup-python@v4
+    - uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.11'
-    - run: pip install -r ${{ github.action_path }}/requirements.txt
+        enable-cache: true
+        cache-dependency-glob: ${{ github.action_path }}/uv.lock
+    - name: Install dependencies
       shell: bash
-    - run: ${{github.action_path}}/create-tag --verbose --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
+      working-directory: ${{ github.action_path }}
+      run: uv sync --frozen --no-dev
+    - name: Create tag
       id: create-tag
       shell: bash
+      working-directory: ${{ github.action_path }}
+      run: uv run python create_tag.py --verbose --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
       env:
         GIT_AUTHOR_NAME: "Instrumentl GitHub Actions Bot"
         GIT_COMMITTER_NAME: "Instrumentl GitHub Actions Bot"

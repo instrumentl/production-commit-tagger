@@ -15,15 +15,16 @@ from typing import List, Optional
 import dateutil.parser
 import git
 import github
+from git.exc import GitCommandError
 
 
 def get_existing_tags(repo, prefix):
     for tag in repo.tags:
         if not tag.name.startswith(prefix):
             continue
-        date = getattr(
-            tag.object, "tagged_date", getattr(tag.object, "committed_date", None)
-        )
+        date = getattr(tag.object, "tagged_date", getattr(tag.object, "committed_date", None))
+        if date is None:
+            continue
         date = datetime.datetime.fromtimestamp(date, tz=datetime.timezone.utc)
         yield tag, date
 
@@ -39,9 +40,7 @@ PRETTY_TYPES = {
 @dataclass
 class CommitMessage(object):
     BREAKING_CHANGE_RE = re.compile(r"^BREAKING CHANGES?: (.*)$", re.M)
-    SUMMARY_RE = re.compile(
-        r"^(?P<type>[a-z]+)(?P<scope>\([^)]+\))?:\s+(?P<description>.*)"
-    )
+    SUMMARY_RE = re.compile(r"^(?P<type>[a-z]+)(?P<scope>\([^)]+\))?:\s+(?P<description>.*)")
 
     type: str
     scope: Optional[str]
@@ -73,14 +72,14 @@ class CommitMessage(object):
 def enumerate_changes(repo, latest_tag, commit, max_commits=50):
     try:
         merge_base = repo.git.merge_base(latest_tag, commit)
-    except git.exc.GitCommandError:
+    except GitCommandError:
         # no merge base; treat as none
         return None
-    for commit in itertools.islice(
+    for change_commit in itertools.islice(
         repo.iter_commits(f"{merge_base}..{commit.hexsha}"), max_commits
     ):
-        logging.debug(f"examining commit {commit}")
-        parsed = CommitMessage.parse(commit)
+        logging.debug(f"examining commit {change_commit}")
+        parsed = CommitMessage.parse(change_commit)
         if parsed is not None:
             yield parsed
 
@@ -93,9 +92,7 @@ def main():
         required="GITHUB_WORKSPACE" not in os.environ,
         help="Checkout directory (default %(default)s)",
     )
-    parser.add_argument(
-        "--prefix", default="v2.", help="Tag prefix (default %(default)s)"
-    )
+    parser.add_argument("--prefix", default="v2.", help="Tag prefix (default %(default)s)")
     parser.add_argument(
         "--sha",
         default=os.environ.get("GITHUB_SHA", ""),
@@ -119,9 +116,7 @@ def main():
 
     timestamp = args.timestamp.replace(tzinfo=datetime.timezone.utc)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING, stream=sys.stderr
-    )
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING, stream=sys.stderr)
 
     actor = os.environ.get("GITHUB_ACTOR", "unknown")
 
@@ -135,9 +130,7 @@ def main():
 
     commit = repo.commit(args.sha)
 
-    new_name = (
-        f"{args.prefix}{timestamp.strftime(args.timestamp_format)}.{args.deployment_id}"
-    )
+    new_name = f"{args.prefix}{timestamp.strftime(args.timestamp_format)}.{args.deployment_id}"
 
     logging.debug("scanning all existing tags")
     existing_tags = list(get_existing_tags(repo, args.prefix))
@@ -174,13 +167,9 @@ def main():
                 by_type["BREAKING CHANGES"].append(f"{breaker} ({change.author})")
         delta = timestamp - last_tag_date
         if any(v for v in by_type.values()):
-            message_lines.extend(
-                ["", f"changes since {last_tag.name} ({delta} ago):", ""]
-            )
+            message_lines.extend(["", f"changes since {last_tag.name} ({delta} ago):", ""])
         else:
-            message_lines.extend(
-                ["", f"no parseable changes since {last_tag.name} ({delta} ago)"]
-            )
+            message_lines.extend(["", f"no parseable changes since {last_tag.name} ({delta} ago)"])
         for type, changes in by_type.items():
             if not changes:
                 continue
@@ -212,7 +201,7 @@ def main():
     output = {
         "tag_name": new_name,
         "release_body_path": release_body_path,
-        "commit_authors": ",".join(sorted(commit_authors))
+        "commit_authors": ",".join(sorted(commit_authors)),
     }
     output = "\n".join(f"{k}={v}".format(k, v) for k, v in output.items())
     if output_path := os.environ.get("GITHUB_OUTPUT"):

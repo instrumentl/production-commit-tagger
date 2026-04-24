@@ -211,7 +211,7 @@ def main():
     output = {
         "tag_name": new_name,
         "release_body_path": release_body_path,
-        "commit_authors": ",".join(sorted(commit_authors)),
+        "commit_authors": ",".join(commit_authors),
     }
     output = "\n".join(f"{k}={v}".format(k, v) for k, v in output.items())
     if output_path := os.environ.get("GITHUB_OUTPUT"):

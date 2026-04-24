@@ -48,7 +48,6 @@ class CommitMessage(object):
     description: str
     author: str
     sha: str
-    sha: str
     breaking_changes: List[str]
 
     @classmethod
@@ -64,7 +63,6 @@ class CommitMessage(object):
                 scope=md.group("scope"),
                 description=md.group("description"),
                 author=commit.author.email,
-                sha=commit.hexsha,
                 sha=commit.hexsha,
                 breaking_changes=cls.BREAKING_CHANGE_RE.findall(body),
             )

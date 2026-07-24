@@ -25,14 +25,17 @@ HEAD_SHA="$(git rev-parse HEAD)"
 
 echo "==> step 1: uv sync --frozen --no-dev (from action_path)"
 cd "$ACTION_PATH"
+# Into a throwaway env, not ./.venv: --no-dev would otherwise prune ruff/pyright/
+# pytest out of the working venv, and a fresh env is closer to what the runner does.
+export UV_PROJECT_ENVIRONMENT="$SANDBOX/.venv-action"
 uv sync --frozen --no-dev
 
-echo "==> step 2: uv run python create_tag.py ..."
+echo "==> step 2: uv run --frozen --no-dev python create_tag.py ..."
 GITHUB_WORKSPACE="$SANDBOX" \
 GITHUB_SHA="$HEAD_SHA" \
 GITHUB_ACTOR="smoke-test" \
 GITHUB_OUTPUT="$SANDBOX/github_output.txt" \
-uv run python create_tag.py \
+uv run --frozen --no-dev python create_tag.py \
   --verbose \
   --prefix v2. \
   --timestamp-format "%Y%m%d%H%M" \

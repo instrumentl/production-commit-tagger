@@ -69,14 +69,16 @@ class CommitMessage(object):
             return None
 
 
-def enumerate_changes(repo, latest_tag, commit, max_commits=50):
+def enumerate_changes(repo, latest_tag, head_commit, max_commits=50):
     try:
-        merge_base = repo.git.merge_base(latest_tag, commit)
+        merge_base = repo.git.merge_base(latest_tag, head_commit)
     except GitCommandError:
         # no merge base; treat as none
         return None
+    # NB: the revision range is bounded by head_commit (the commit being deployed),
+    # not by change_commit -- the range is evaluated once, before the loop starts.
     for change_commit in itertools.islice(
-        repo.iter_commits(f"{merge_base}..{commit.hexsha}"), max_commits
+        repo.iter_commits(f"{merge_base}..{head_commit.hexsha}"), max_commits
     ):
         logging.debug(f"examining commit {change_commit}")
         parsed = CommitMessage.parse(change_commit)

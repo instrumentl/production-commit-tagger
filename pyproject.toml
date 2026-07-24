@@ -34,7 +34,6 @@ select = [
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
-reportMissingImports = false
 
 [tool.pytest.ini_options]
 testpaths = ["."]

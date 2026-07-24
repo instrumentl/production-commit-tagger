@@ -22,7 +22,8 @@ GitHub composite action that runs after a production deployment and:
 
 ## Development
 
-Requires [uv](https://github.com/astral-sh/uv). Version is pinned in `.tool-versions`.
+Requires [uv](https://github.com/astral-sh/uv) and Node (pyright ships as a node
+binary). Both are pinned in `.tool-versions`.
 
 ```sh
 uv sync                         # install runtime + dev deps into .venv
@@ -32,6 +33,8 @@ uv run pyright                  # type check
 uv run pytest                   # run tests
 ./smoke-test.sh                 # end-to-end: exercise the action against a throwaway repo
 ```
+
+`smoke-test.sh` builds its own throwaway venv, so it leaves `./.venv` alone.
 
 Pre-commit hooks are available via `pre-commit install`.
 

@@ -3,11 +3,16 @@
 # running the same two steps action.yml runs on the GitHub Actions runner.
 #
 # Usage: ./smoke-test.sh
+#        KEEP_SMOKE_SANDBOX=1 ./smoke-test.sh
 set -euo pipefail
 
 ACTION_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX="$(mktemp -d)"
-trap 'rm -rf "$SANDBOX"' EXIT
+if [[ "${KEEP_SMOKE_SANDBOX:-}" == "1" ]]; then
+  echo "==> preserving sandbox because KEEP_SMOKE_SANDBOX=1"
+else
+  trap 'rm -rf "$SANDBOX"' EXIT
+fi
 
 echo "==> building sandbox consumer repo at $SANDBOX"
 cd "$SANDBOX"

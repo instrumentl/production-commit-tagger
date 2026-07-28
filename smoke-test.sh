@@ -41,7 +41,6 @@ GITHUB_SHA="$HEAD_SHA" \
 GITHUB_ACTOR="smoke-test" \
 GITHUB_OUTPUT="$SANDBOX/github_output.txt" \
 uv run --frozen --no-dev python create_tag.py \
-  --verbose \
   --prefix v2. \
   --timestamp-format "%Y%m%d%H%M" \
   --token none \

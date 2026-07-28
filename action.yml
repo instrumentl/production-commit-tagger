@@ -32,6 +32,10 @@ runs:
   steps:
     - uses: astral-sh/setup-uv@v7
       with:
+        # Defaults to the consumer's checkout, where setup-uv looks for a uv version
+        # and a Python version that have nothing to do with this action. Pointing it
+        # here lets it find our required-version instead of installing uv latest.
+        working-directory: ${{ github.action_path }}
         enable-cache: true
         cache-dependency-glob: ${{ github.action_path }}/uv.lock
     - name: Install dependencies
@@ -42,7 +46,7 @@ runs:
       id: create-tag
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: uv run --frozen --no-dev python create_tag.py --verbose --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
+      run: uv run --frozen --no-dev python create_tag.py --prefix ${{ inputs.prefix }} --timestamp-format ${{ inputs.timestamp_format }} --token ${{ inputs.token }} --repository ${{ github.repository }} ${{ inputs.timestamp }} ${{ inputs.deployment_id }}
       env:
         GIT_AUTHOR_NAME: "Instrumentl GitHub Actions Bot"
         GIT_COMMITTER_NAME: "Instrumentl GitHub Actions Bot"

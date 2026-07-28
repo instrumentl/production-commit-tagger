@@ -18,6 +18,10 @@ dev = [
 
 [tool.uv]
 package = false
+# uv.lock + --frozen pin the dependencies; this pins the tool that installs them.
+# setup-uv reads it, so the runner stops falling back to "whatever shipped today"
+# across every repo consuming this action at @main. Keep in sync with .tool-versions.
+required-version = "==0.11.32"
 
 [tool.ruff]
 line-length = 100

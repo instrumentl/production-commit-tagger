@@ -2,9 +2,13 @@ import pathlib
 from unittest import mock
 
 import git
+import github
+import github.Commit
+import github.NamedUser
+import github.Repository
 import pytest
 
-from create_tag import PRETTY_TYPES, CommitMessage, enumerate_changes
+from create_tag import PRETTY_TYPES, CommitMessage, enumerate_changes, github_logins
 
 
 def _commit(message, sha="abc123", email="dev@example.com"):
@@ -109,3 +113,63 @@ def test_enumerate_changes_without_merge_base_yields_nothing(repo):
     """No merge base (e.g. an orphan history) is swallowed, not raised."""
     orphan = repo.git.commit_tree(repo.head.commit.tree.hexsha, m="feat: orphan")
     assert list(enumerate_changes(repo, TAG, repo.commit(orphan))) == []
+
+
+def _gh_repo(sha_to_login):
+    """Repository stub whose get_commit maps a SHA to a GitHub login (None = ghost)."""
+    gh_repo = mock.create_autospec(github.Repository.Repository, instance=True)
+
+    def get_commit(sha):
+        gh_commit = mock.create_autospec(github.Commit.Commit, instance=True)
+        login = sha_to_login[sha]
+        if login is None:
+            gh_commit.author = None
+        else:
+            gh_commit.author = mock.create_autospec(github.NamedUser.NamedUser, instance=True)
+            gh_commit.author.login = login
+        return gh_commit
+
+    gh_repo.get_commit.side_effect = get_commit
+    return gh_repo
+
+
+def test_github_logins_preserves_commit_order():
+    """Order is the output contract -- #11 wanted commit order, a set gave hash order."""
+    author_to_sha = {
+        "zoe@example.com": "sha1",
+        "adam@example.com": "sha2",
+        "mia@example.com": "sha3",
+    }
+    gh_repo = _gh_repo({"sha1": "zoe-gh", "sha2": "adam-gh", "sha3": "mia-gh"})
+    assert github_logins(gh_repo, author_to_sha) == ["zoe-gh", "adam-gh", "mia-gh"]
+
+
+def test_github_logins_dedupes_keeping_first_position():
+    author_to_sha = {
+        "zoe@work.com": "sha1",
+        "adam@example.com": "sha2",
+        "zoe@personal.com": "sha3",
+    }
+    gh_repo = _gh_repo({"sha1": "zoe-gh", "sha2": "adam-gh", "sha3": "zoe-gh"})
+    assert github_logins(gh_repo, author_to_sha) == ["zoe-gh", "adam-gh"]
+
+
+def test_github_logins_skips_lookup_failures_without_losing_the_rest():
+    author_to_sha = {"a@example.com": "sha1", "b@example.com": "sha2", "c@example.com": "sha3"}
+    resolvable = _gh_repo({"sha1": "a-gh", "sha3": "c-gh"})
+
+    def get_commit(sha):
+        if sha == "sha2":
+            raise github.GithubException(404, "Not Found", None)
+        return resolvable.get_commit(sha)
+
+    gh_repo = mock.create_autospec(github.Repository.Repository, instance=True)
+    gh_repo.get_commit.side_effect = get_commit
+    assert github_logins(gh_repo, author_to_sha) == ["a-gh", "c-gh"]
+
+
+def test_github_logins_skips_commits_with_no_github_author():
+    """Unlinked email -> gh_commit.author is None; must not emit an entry."""
+    author_to_sha = {"a@example.com": "sha1", "ghost@example.com": "sha2"}
+    gh_repo = _gh_repo({"sha1": "a-gh", "sha2": None})
+    assert github_logins(gh_repo, author_to_sha) == ["a-gh"]

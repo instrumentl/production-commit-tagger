@@ -25,7 +25,7 @@ outputs:
     description: 'Path to a file containing the body to put in the Release'
     value: ${{ steps.create-tag.outputs.release_body_path }}
   commit_authors:
-    description: 'Comma-separated list of the first page of author usernames since the last Release'
+    description: 'Comma-separated author usernames since the last Release, in the order their commits appear (newest first)'
     value: ${{ steps.create-tag.outputs.commit_authors }}
 runs:
   using: 'composite'

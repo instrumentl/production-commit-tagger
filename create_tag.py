@@ -86,6 +86,25 @@ def enumerate_changes(repo, latest_tag, head_commit, max_commits=50):
             yield parsed
 
 
+def github_logins(gh_repo, author_to_sha):
+    """GitHub logins for each commit author, in the order their commits were seen.
+
+    Returns a list, not a set: the order is part of the output contract. Distinct
+    author emails can resolve to the same login, so duplicates are dropped while
+    keeping the first position.
+    """
+    logins = []
+    for email, sha in author_to_sha.items():
+        try:
+            gh_commit = gh_repo.get_commit(sha)
+        except Exception:
+            logging.debug(f"could not look up GitHub user for {email}")
+            continue
+        if gh_commit.author and gh_commit.author.login not in logins:
+            logins.append(gh_commit.author.login)
+    return logins
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -151,18 +170,16 @@ def main():
         )
     ]
 
-    commit_authors = set()
+    commit_authors = []
     if last_tag:
         by_type = collections.defaultdict(list)
         by_type["feat"] = []
         by_type["fix"] = []
-        change_authors = set()
 
         # email of author -> SHA of the first commit found in changes
         author_to_sha = {}
         for change in enumerate_changes(repo, last_tag, commit):
             by_type[change.type].append(f"{change.description} ({change.author})")
-            change_authors.add(change.author)
             if change.author not in author_to_sha:
                 author_to_sha[change.author] = change.sha
             for breaker in change.breaking_changes:
@@ -184,14 +201,7 @@ def main():
         if github_client is not None and author_to_sha:
             # Map commit authors to GitHub usernames via commit SHA lookup
             # it is used to add contributors to the tag
-            gh_repo = github_client.get_repo(args.repository)
-            for email, sha in author_to_sha.items():
-                try:
-                    gh_commit = gh_repo.get_commit(sha)
-                    if gh_commit.author:
-                        commit_authors.add(gh_commit.author.login)
-                except Exception:
-                    logging.debug(f"could not look up GitHub user for {email}")
+            commit_authors = github_logins(github_client.get_repo(args.repository), author_to_sha)
 
     release_body_path = f"release_notes-{new_name}.txt"
     with open(os.path.join(args.checkout_dir, release_body_path), "w") as tf:
